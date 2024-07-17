@@ -1,94 +1,69 @@
 import streamlit as st
 from openai import OpenAI
 import re
-import traceback
-import asyncio
 
 # Set Streamlit page configuration
 st.set_page_config(page_title="Chatbot with Image Generation")
 
-# Logging function
-def log(message):
-    st.write(f"LOG: {message}")
+# Initialize OpenAI client
+client = OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
 
-try:
-    log("App started")
+# Initialize chat history
+if "messages" not in st.session_state:
+    st.session_state.messages = []
 
-    # Check for API key
-    if "OPENAI_API_KEY" not in st.secrets:
-        st.error("OPENAI_API_KEY is not set in the secrets.")
-        st.stop()
+def chat_with(prompt):
+    messages = [
+        {"role": "system", "content": "You are a helpful assistant. When explaining processes or giving instructions, please limit your response to 6-7 clear, concise steps."},
+        {"role": "user", "content": prompt}
+    ]
+    response = client.chat.completions.create(
+        model="gpt-3.5-turbo",
+        messages=messages
+    )
+    return response.choices[0].message.content.strip()
 
-    log("API key found")
+def generate_image(prompt):
+    response = client.images.generate(
+        model="dall-e-3",
+        prompt=prompt,
+        size="1024x1024",
+        quality="standard",
+        n=1,
+        style="natural"
+    )
+    return response.data[0].url
 
-    # Initialize OpenAI client
-    client = OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
+# Streamlit app
+st.title("Chatbot with Image Generation")
 
-    log("OpenAI client initialized")
+# Display chat messages
+for message in st.session_state.messages:
+    with st.chat_message(message["role"]):
+        st.markdown(message["content"])
 
-    async def chat_with_timeout(prompt, timeout=30):
-        try:
-            response = await asyncio.wait_for(
-                client.chat.completions.create(
-                    model="gpt-3.5-turbo",
-                    messages=[{"role": "user", "content": prompt}]
-                ),
-                timeout=timeout
-            )
-            return response.choices[0].message.content.strip()
-        except asyncio.TimeoutError:
-            return "Request timed out"
+# Chat input
+if prompt := st.chat_input("You:"):
+    st.session_state.messages.append({"role": "user", "content": prompt})
+    with st.chat_message("user"):
+        st.markdown(prompt)
 
-    async def generate_image_timeout(prompt, timeout=60):
-        try:
-            response = await asyncio.wait_for(
-                client.images.generate(
-                    model="dall-e-3",
-                    prompt=prompt,
-                    size="1024x1024",
-                    quality="standard",
-                    n=1,
-                    style="natural"
-                ),
-                timeout=timeout
-            )
-            return response.data[0].url
-        except asyncio.TimeoutError:
-            return "Image generation timed out"
-
-    # Streamlit app
-    st.title("Chatbot with Image Generation")
-
-    user_input = st.text_input("You: ", "")
-
-    if st.button("Send"):
-        if user_input.lower() in ["quit", "exit", "bye"]:
-            st.stop()
-
-        log("Processing user input")
-
-        response = asyncio.run(chat_with_timeout(user_input))
-        log("Chat response received")
-
+    response = chat_with(prompt)
+    st.session_state.messages.append({"role": "assistant", "content": response})
+    
+    with st.chat_message("assistant"):
+        st.markdown(response)
+        
         response = re.sub(r'^\d+\.\s*', '', response, flags=re.MULTILINE)
         sentences = re.split(r'(?<=\.)\s+', response.strip())
         sentences = [sentence if sentence.endswith('.') else sentence + '.' for sentence in sentences]
 
         for c, sentence in enumerate(sentences, 1):
-            st.write(f"Chatbot: Step {c} - {sentence}")
-            
-            log(f"Generating image for sentence {c}")
-            image_url = asyncio.run(generate_image_timeout(sentence))
-            
-            if image_url == "Image generation timed out":
-                st.write("Image generation timed out")
-            else:
-                st.image(image_url, caption=f"Generated Image for Step {c}")
+            image_url = generate_image(sentence)
+            st.image(image_url, caption=f"Step {c}")
 
-        log("Processing complete")
-
-except Exception as e:
-    st.error(f"An error occurred: {str(e)}")
-    st.text(traceback.format_exc())
-
+# Quit button
+if st.button("Quit Chat"):
+    st.session_state.messages = []
+    st.experimental_rerun()
              
