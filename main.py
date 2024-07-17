@@ -8,13 +8,9 @@ st.set_page_config(page_title="Chatbot with Image Generation")
 # Initialize OpenAI client
 client = OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
 
-# Initialize chat history, step counter, and active state
+# Initialize chat history and active state
 if "messages" not in st.session_state:
     st.session_state.messages = []
-if "current_step" not in st.session_state:
-    st.session_state.current_step = 0
-if "steps" not in st.session_state:
-    st.session_state.steps = []
 if "active" not in st.session_state:
     st.session_state.active = True
 
@@ -43,46 +39,38 @@ def generate_image(prompt):
 # Streamlit app
 st.title("Chatbot with Image Generation")
 
-# Quit button
-if st.button("Quit" if st.session_state.active else "Resume"):
-    st.session_state.active = not st.session_state.active
-
 # Display chat messages
 for message in st.session_state.messages:
     with st.chat_message(message["role"]):
         st.markdown(message["content"])
 
-# Chat input
-if prompt := st.chat_input("You:", disabled=not st.session_state.active):
+# Chat input and quit button
+col1, col2 = st.columns([4, 1])
+with col1:
+    prompt = st.text_input("You:", disabled=not st.session_state.active)
+with col2:
+    quit_resume = st.button("Quit" if st.session_state.active else "Resume")
+
+if quit_resume:
+    st.session_state.active = not st.session_state.active
+    st.experimental_rerun()
+
+if prompt and st.session_state.active:
     st.session_state.messages.append({"role": "user", "content": prompt})
     with st.chat_message("user"):
         st.markdown(prompt)
 
-    if st.session_state.active:
-        response = chat_with(prompt)
-        st.session_state.messages.append({"role": "assistant", "content": response})
-        
-        with st.chat_message("assistant"):
-            st.markdown("I've prepared the steps for you. Click 'Next Step' to see each step with its corresponding image.")
-            
-            response = re.sub(r'^\d+\.\s*', '', response, flags=re.MULTILINE)
-            st.session_state.steps = re.split(r'(?<=\.)\s+', response.strip())
-            st.session_state.steps = [step if step.endswith('.') else step + '.' for step in st.session_state.steps]
-            st.session_state.current_step = 0
+    response = chat_with(prompt)
+    st.session_state.messages.append({"role": "assistant", "content": response})
+    
+    with st.chat_message("assistant"):
+        response = re.sub(r'^\d+\.\s*', '', response, flags=re.MULTILINE)
+        steps = re.split(r'(?<=\.)\s+', response.strip())
+        steps = [step if step.endswith('.') else step + '.' for step in steps]
 
-# Next step button
-if st.button("Next Step", disabled=not st.session_state.active) and st.session_state.steps:
-    if st.session_state.current_step < len(st.session_state.steps):
-        step = st.session_state.steps[st.session_state.current_step]
-        with st.chat_message("assistant"):
-            st.markdown(f"Step {st.session_state.current_step + 1}: {step}")
+        for i, step in enumerate(steps, 1):
+            st.markdown(f"Step {i}: {step}")
             image_url = generate_image(step)
-            st.image(image_url, caption=f"Step {st.session_state.current_step + 1}")
-        st.session_state.current_step += 1
-    else:
-        st.write("All steps completed.")
+            st.image(image_url, caption=f"Step {i}")
 
-# Reset button
-if st.button("Reset Steps", disabled=not st.session_state.active):
-    st.session_state.current_step = 0
     st.experimental_rerun()
